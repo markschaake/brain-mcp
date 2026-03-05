@@ -1,0 +1,26 @@
+{
+  "name": "brain-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.26.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@openrouter/sdk": "^0.9.11",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.4",
+    "@types/pg": "^8.18.0",
+    "typescript": "^5.9.3"
+  }
+}
