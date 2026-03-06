@@ -25,4 +25,21 @@ export async function getOrCreateBrain(
   return result.rows[0].id;
 }
 
+export async function withTransaction<T>(
+  fn: (client: pg.PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch (_) { /* ignore rollback failure */ }
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 export { pool };

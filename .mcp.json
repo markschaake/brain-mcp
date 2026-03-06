@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "brain-test": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "cwd": "/home/markschaake/projects/brain-mcp",
+      "env": {
+        "BRAIN_NAME": "test"
+      }
+    }
+  }
+}
