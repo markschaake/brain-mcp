@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 brain-mcp is an MCP (Model Context Protocol) server that provides persistent semantic memory via a PostgreSQL + pgvector database. It stores "thoughts" with vector embeddings and organizes them via a flexible dimensional model (people, projects, topics, tags, etc.).
 
+This repo provides two servers:
+- **brain-mcp** (`dist/index.js`) — General-purpose knowledge store with ADR support
+- **brain-code-mcp** (`dist/code.js`) — Superset of brain-mcp with code-linking and knowledge freshness tools
+
 ## Commands
 
 ```bash
@@ -15,9 +19,10 @@ pnpm run dev          # watch mode compilation
 docker compose up -d  # start PostgreSQL with pgvector (port 5488)
 ```
 
-Run the server (stdio transport):
+Run the servers (stdio transport):
 ```bash
-OPENROUTER_API_KEY=... node dist/index.js
+OPENROUTER_API_KEY=... node dist/index.js   # brain-mcp
+OPENROUTER_API_KEY=... node dist/code.js    # brain-code-mcp (superset)
 ```
 
 Seed script:
@@ -30,17 +35,20 @@ No test framework is configured yet.
 
 ## Architecture
 
-**MCP server over stdio** — single-process Node.js app using `@modelcontextprotocol/sdk`.
+**Two MCP servers over stdio** — single-process Node.js apps using `@modelcontextprotocol/sdk`.
 
-Three source files:
-- `src/index.ts` — MCP server setup, all 6 tool definitions and startup logic
+Source files:
+- `src/index.ts` — brain-mcp entry point (creates server, registers core tools, connects)
+- `src/code.ts` — brain-code-mcp entry point (creates server, registers core + code tools, connects)
+- `src/tools.ts` — shared tool registration: all core tools + ADR tools via `registerCoreTools(server, getBrainId)`
 - `src/db.ts` — pg connection pool, `query()`, `getOrCreateBrain()`, and `withTransaction()` helpers
 - `src/embeddings.ts` — embedding generation via OpenRouter SDK (default model: `openai/text-embedding-3-small`, 1536 dimensions)
+- `src/git.ts` — git operations for freshness detection (`getCurrentSha`, `getFileDiff`, `didLinesChange`, `getFileHash`)
 
 **Database schema** (`migrations/001_schema.sql` + `002_temporality.sql`):
 - `brains` — isolated knowledge spaces (selected by `BRAIN_NAME` env var, default "personal")
-- `thoughts` — content + vector(1536) embedding + source + metadata + thought_type + status + superseded_by
-- `dimensions` — typed categories (person, project, topic, etc.), unique per (brain, name, type)
+- `thoughts` — content + vector(1536) embedding + source + metadata (jsonb) + thought_type + status + superseded_by
+- `dimensions` — typed categories (person, project, topic, etc.) with metadata (jsonb), unique per (brain, name, type)
 - `thought_dimensions` — many-to-many links with optional context
 - HNSW index on embeddings for cosine similarity search
 
@@ -49,15 +57,31 @@ Three source files:
 - `status`: `active` (default), `superseded`, `archived`. All queries filter to active-only by default.
 - `superseded_by`: self-referencing FK linking old thoughts to their replacements
 - `capture_thought` automatically detects similar active thoughts (>75% similarity) and surfaces them for potential supersession
-- `supersede_thought` atomically replaces a thought: marks old as superseded, creates new one, copies or replaces dimensions
+- `supersede_thought` atomically replaces a thought: marks old as superseded, creates new one, copies or replaces dimensions. Auto-preserves ADR metadata (`adr`, `adr_number`).
 
-**Tools:**
-- `capture_thought` — store a thought with type, dimensions, and embedding. Surfaces conflicts with existing similar thoughts.
+**Core tools** (both servers):
+- `capture_thought` — store a thought with type, dimensions, metadata, and embedding. Surfaces conflicts.
 - `search` — semantic vector search with optional filters (brain, dimension, thought_type, include_superseded)
 - `list_recent` — chronological listing with optional filters (source, thought_type, include_superseded)
 - `explore_dimension` — all thoughts linked to a dimension, with optional filters
-- `list_dimensions` — all dimensions with thought counts (active-only by default, optional include_superseded)
-- `supersede_thought` — replace an existing thought, preserving history. Copies dimensions from old thought if not provided.
+- `list_dimensions` — all dimensions with thought counts (active-only by default)
+- `supersede_thought` — replace an existing thought, preserving history and ADR metadata
+- `capture_adr` — record an Architecture Decision Record with auto-numbering, context, alternatives, consequences
+- `list_adrs` — list/filter ADRs by status or dimension
+
+**Code tools** (brain-code-mcp only):
+- `capture_code_context` — capture knowledge linked to files, symbols, or repos (creates repo/file/symbol dimensions)
+- `search_code` — semantic search filtered to code-linked knowledge
+- `check_freshness` — git-based staleness detection for code-linked thoughts
+- `refresh_stale_knowledge` — find stale thoughts with git diffs for review
+
+**Code-linked dimension types** (used by brain-code-mcp):
+- `repo` — repository name, metadata: `{}` (extensible)
+- `file` — repo-relative path, metadata: `{repo, line_start, line_end, git_sha}`
+- `symbol` — symbol name, metadata: `{repo, file, kind}`
+
+**ADR metadata** (stored in `thoughts.metadata`):
+- `adr: true` marker, `adr_number` (auto-assigned), `adr_title`, `adr_status` (proposed/accepted/deprecated/superseded), `adr_context`, `adr_alternatives`, `adr_consequences`, `adr_decided_date`, `adr_revisit_date`
 
 **Key environment variables:**
 - `DATABASE_URL` — PostgreSQL connection (default: `postgresql://brain:brain@localhost:5488/brain`)
@@ -81,3 +105,6 @@ The brain-mcp server is a persistent knowledge store. Follow these rules:
 3. **Capture new knowledge proactively.** When notable facts, decisions, or observations come up during conversation, offer to store them with `capture_thought`.
 4. **Keep knowledge current.** When information is corrected or updated, use `supersede_thought` to replace the outdated version rather than just adding a new thought.
 5. **Use `list_dimensions` to orient.** When unsure what knowledge exists, start by listing dimensions to see what categories are populated.
+6. **Record architecture decisions.** When a significant technical decision is made, use `capture_adr` to record it with context and alternatives.
+7. **Link knowledge to code.** When using brain-code-mcp, use `capture_code_context` to anchor knowledge to specific files and symbols.
+8. **Check freshness.** When referencing code-linked knowledge, use `check_freshness` to verify it's still current.

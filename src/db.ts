@@ -42,4 +42,7 @@ export async function withTransaction<T>(
   }
 }
 
+/** A function with the same signature as query(), usable with either the pool or a transaction client. */
+export type QueryFn = <T extends pg.QueryResultRow>(text: string, params?: unknown[]) => Promise<pg.QueryResult<T>>;
+
 export { pool };
