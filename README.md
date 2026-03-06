@@ -51,41 +51,27 @@ You only need to configure one — brain-code-mcp includes all brain-mcp tools.
 ### Prerequisites
 
 - Node.js
-- [pnpm](https://pnpm.io/)
-- Docker (for PostgreSQL + pgvector)
+- PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) extension
 - An [OpenRouter](https://openrouter.ai/) API key (for generating embeddings)
 
-### Install and run
+### Quick start (Claude Code)
+
+Set `OPENROUTER_API_KEY` in your shell environment (e.g. in `~/.bashrc` or `~/.zshrc`):
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Start PostgreSQL with pgvector (port 5488)
-docker compose up -d
-
-# Build
-pnpm run build
-
-# Run brain-mcp (general-purpose)
-OPENROUTER_API_KEY=your-key-here node dist/index.js
-
-# Run brain-code-mcp (code-aware superset)
-OPENROUTER_API_KEY=your-key-here node dist/code.js
+export OPENROUTER_API_KEY="your-key-here"
 ```
 
-### Configure in Claude Code
-
-For general use:
+Then add to your project's `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "brain": {
-      "command": "node",
-      "args": ["/path/to/brain-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "github:schaakesolutionsllc/brain-mcp"],
       "env": {
-        "OPENROUTER_API_KEY": "your-key-here",
+        "DATABASE_URL": "postgresql://user:pass@host:5432/brain",
         "BRAIN_NAME": "personal"
       }
     }
@@ -93,21 +79,53 @@ For general use:
 }
 ```
 
-For software projects (includes all core tools plus code-aware tools):
+For brain-code-mcp (includes code-aware tools):
 
 ```json
 {
   "mcpServers": {
     "brain": {
-      "command": "node",
-      "args": ["/path/to/brain-mcp/dist/code.js"],
+      "command": "npx",
+      "args": ["-y", "-p", "github:schaakesolutionsllc/brain-mcp", "brain-code-mcp"],
       "env": {
-        "OPENROUTER_API_KEY": "your-key-here",
+        "DATABASE_URL": "postgresql://user:pass@host:5432/brain",
         "BRAIN_NAME": "my-project"
       }
     }
   }
 }
+```
+
+> **Note:** Do not put `OPENROUTER_API_KEY` in `.mcp.json` — it is often checked into version control. The server reads it from the environment automatically.
+
+The database schema is automatically created on first run.
+
+### Database options
+
+**Option 1: Use the included docker-compose** (easiest for local development)
+
+```bash
+git clone https://github.com/schaakesolutionsllc/brain-mcp.git
+cd brain-mcp
+docker compose up -d   # starts PostgreSQL+pgvector on port 5488
+```
+
+With docker-compose, the default `DATABASE_URL` (`postgresql://brain:brain@localhost:5488/brain`) works without any configuration.
+
+**Option 2: Bring your own PostgreSQL**
+
+Any PostgreSQL instance with the pgvector extension installed will work. Set `DATABASE_URL` in your MCP config. The schema is auto-applied on first server startup.
+
+### Local development
+
+```bash
+pnpm install
+pnpm run build
+pnpm run dev    # watch mode (tsc --watch)
+
+# Run directly
+OPENROUTER_API_KEY=your-key node dist/index.js      # brain-mcp
+OPENROUTER_API_KEY=your-key node dist/code.js        # brain-code-mcp
 ```
 
 ## Environment variables
@@ -129,12 +147,13 @@ For software projects (includes all core tools plus code-aware tools):
 | `src/code.ts` | brain-code-mcp entry point (superset) |
 | `src/tools.ts` | Shared tool registration (core + ADR tools) |
 | `src/db.ts` | PostgreSQL connection pool and helpers |
+| `src/migrate.ts` | Auto-migration runner (applies `migrations/*.sql` on startup) |
 | `src/embeddings.ts` | Embedding generation via OpenRouter |
 | `src/git.ts` | Git operations for freshness detection |
 
 ### Database schema
 
-Migrations are in `migrations/` and are auto-applied by the Docker entrypoint.
+Migrations are in `migrations/` and are auto-applied on server startup.
 
 - **brains** — isolated knowledge spaces
 - **thoughts** — content + vector(1536) embedding + metadata (jsonb) + thought type + status
@@ -168,12 +187,6 @@ ADRs are stored as `decision` thoughts with structured metadata:
   "adr_consequences": ["Must run PostgreSQL with pgvector"],
   "adr_decided_date": "2026-03-01"
 }
-```
-
-## Development
-
-```bash
-pnpm run dev    # watch mode (tsc --watch)
 ```
 
 ## License

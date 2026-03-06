@@ -4,9 +4,18 @@
   "type": "module",
   "description": "",
   "main": "dist/index.js",
+  "bin": {
+    "brain-mcp": "dist/index.js",
+    "brain-code-mcp": "dist/code.js"
+  },
+  "files": [
+    "dist/",
+    "migrations/"
+  ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepare": "tsc"
   },
   "keywords": [],
   "author": "",

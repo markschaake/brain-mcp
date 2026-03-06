@@ -42,6 +42,7 @@ Source files:
 - `src/code.ts` — brain-code-mcp entry point (creates server, registers core + code tools, connects)
 - `src/tools.ts` — shared tool registration: all core tools + ADR tools via `registerCoreTools(server, getBrainId)`
 - `src/db.ts` — pg connection pool, `query()`, `getOrCreateBrain()`, and `withTransaction()` helpers
+- `src/migrate.ts` — auto-migration runner: applies `migrations/*.sql` on startup, detects pre-existing schemas
 - `src/embeddings.ts` — embedding generation via OpenRouter SDK (default model: `openai/text-embedding-3-small`, 1536 dimensions)
 - `src/git.ts` — git operations for freshness detection (`getCurrentSha`, `getFileDiff`, `didLinesChange`, `getFileHash`)
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
@@ -6,6 +7,7 @@ import { generateEmbedding } from "./embeddings.js";
 import { registerCoreTools, upsertDimension, linkThoughtDimension } from "./tools.js";
 import { getCurrentSha, getFileDiff, didLinesChange, getFileHash } from "./git.js";
 import path from "node:path";
+import { runMigrations } from "./migrate.js";
 
 const brainName = process.env.BRAIN_NAME || "personal";
 
@@ -507,6 +509,13 @@ server.tool(
           continue;
         }
 
+        const fullPath = path.resolve(repo_path, f.name);
+        if (!fullPath.startsWith(path.resolve(repo_path) + path.sep) && fullPath !== path.resolve(repo_path)) {
+          fileReports.push(`  ${f.name}: skipped (path outside repository)`);
+          if (overallStatus === "fresh") overallStatus = "unknown";
+          continue;
+        }
+
         try {
           const lineStart = f.metadata?.line_start as number | undefined;
           const lineEnd = f.metadata?.line_end as number | undefined;
@@ -522,12 +531,6 @@ server.tool(
             overallStatus = "stale";
           }
         } catch {
-          const fullPath = path.resolve(repo_path, f.name);
-          if (!fullPath.startsWith(path.resolve(repo_path))) {
-            fileReports.push(`  ${f.name}: skipped (path outside repository)`);
-            if (overallStatus === "fresh") overallStatus = "unknown";
-            continue;
-          }
           try {
             const currentHash = await getFileHash(fullPath);
             const capturedHash = f.metadata?.file_hash as string | undefined;
@@ -676,6 +679,7 @@ function timeSince(date: Date): string {
 // -- Start --
 
 async function main() {
+  await runMigrations();
   brainId = await getOrCreateBrain(brainName);
   const transport = new StdioServerTransport();
   await server.connect(transport);

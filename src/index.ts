@@ -1,6 +1,8 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { getOrCreateBrain } from "./db.js";
+import { runMigrations } from "./migrate.js";
 import { registerCoreTools } from "./tools.js";
 
 const brainName = process.env.BRAIN_NAME || "personal";
@@ -35,6 +37,7 @@ let brainId: string;
 registerCoreTools(server, () => brainId);
 
 async function main() {
+  await runMigrations();
   brainId = await getOrCreateBrain(brainName);
   const transport = new StdioServerTransport();
   await server.connect(transport);
