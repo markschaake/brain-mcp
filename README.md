@@ -69,7 +69,7 @@ Then add to your project's `.mcp.json`:
   "mcpServers": {
     "brain": {
       "command": "npx",
-      "args": ["-y", "github:schaakesolutionsllc/brain-mcp"],
+      "args": ["-y", "github:markschaake/brain-mcp"],
       "env": {
         "DATABASE_URL": "postgresql://user:pass@host:5432/brain",
         "BRAIN_NAME": "personal"
@@ -86,7 +86,7 @@ For brain-code-mcp (includes code-aware tools):
   "mcpServers": {
     "brain": {
       "command": "npx",
-      "args": ["-y", "-p", "github:schaakesolutionsllc/brain-mcp", "brain-code-mcp"],
+      "args": ["-y", "-p", "github:markschaake/brain-mcp", "brain-code-mcp"],
       "env": {
         "DATABASE_URL": "postgresql://user:pass@host:5432/brain",
         "BRAIN_NAME": "my-project"
@@ -105,7 +105,7 @@ The database schema is automatically created on first run.
 **Option 1: Use the included docker-compose** (easiest for local development)
 
 ```bash
-git clone https://github.com/schaakesolutionsllc/brain-mcp.git
+git clone https://github.com/markschaake/brain-mcp.git
 cd brain-mcp
 docker compose up -d   # starts PostgreSQL+pgvector on port 5488
 ```
