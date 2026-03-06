@@ -33,6 +33,7 @@ You only need to configure one — brain-code-mcp includes all brain-mcp tools.
 | `list_recent` | Chronological listing with optional filters |
 | `explore_dimension` | All thoughts linked to a given dimension |
 | `list_dimensions` | All dimensions with thought counts |
+| `list_brains` | List all brains with optional thought counts. Respects `BRAIN_ACCESSIBLE`. |
 | `supersede_thought` | Replace an existing thought, preserving history. Auto-preserves ADR metadata. |
 | `capture_adr` | Record an Architecture Decision Record with context, alternatives, and consequences |
 | `list_adrs` | List and filter ADRs by status or dimension |

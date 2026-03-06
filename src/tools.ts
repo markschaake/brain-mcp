@@ -625,6 +625,69 @@ export function registerCoreTools(
     return { content: [{ type: "text" as const, text }] };
   });
 
+  // -- list_brains --
+
+  server.registerTool("list_brains", {
+    description:
+      "List all brains (knowledge spaces) in the database. Shows name, description, thought counts, and creation date. Useful for discovering available brains in a multi-brain setup.",
+    inputSchema: {
+      include_stats: z
+        .boolean()
+        .optional()
+        .describe("Include active thought counts per brain (default: true)"),
+    },
+  }, async ({ include_stats }) => {
+    const withStats = include_stats !== false;
+
+    let sql: string;
+    const params: unknown[] = [];
+
+    if (withStats) {
+      sql = `
+        SELECT b.name, b.description, b.created_at, COUNT(t.id) as thought_count
+        FROM brains b
+        LEFT JOIN thoughts t ON t.brain_id = b.id AND t.status = 'active'
+      `;
+      if (accessible.length > 0) {
+        sql += ` WHERE b.name = ANY($1)`;
+        params.push(accessible);
+      }
+      sql += ` GROUP BY b.id, b.name, b.description, b.created_at ORDER BY b.name`;
+    } else {
+      sql = `SELECT b.name, b.description, b.created_at FROM brains b`;
+      if (accessible.length > 0) {
+        sql += ` WHERE b.name = ANY($1)`;
+        params.push(accessible);
+      }
+      sql += ` ORDER BY b.name`;
+    }
+
+    const result = await query<{
+      name: string;
+      description: string | null;
+      created_at: string;
+      thought_count?: string;
+    }>(sql, params);
+
+    if (result.rows.length === 0) {
+      return { content: [{ type: "text" as const, text: "No brains found." }] };
+    }
+
+    const text = result.rows
+      .map((r) => {
+        const parts = [r.name];
+        if (r.description) parts.push(`— ${r.description}`);
+        if (withStats && r.thought_count !== undefined) {
+          parts.push(`| ${r.thought_count} active thoughts`);
+        }
+        parts.push(`| created ${r.created_at}`);
+        return parts.join(" ");
+      })
+      .join("\n");
+
+    return { content: [{ type: "text" as const, text }] };
+  });
+
   // -- supersede_thought --
 
   server.registerTool("supersede_thought", {

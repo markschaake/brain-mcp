@@ -68,6 +68,7 @@ Source files:
 - `list_recent` — chronological listing with optional filters (source, thought_type, include_superseded)
 - `explore_dimension` — all thoughts linked to a dimension, with optional filters
 - `list_dimensions` — all dimensions with thought counts (active-only by default)
+- `list_brains` — list all brains (knowledge spaces) with optional thought counts; respects `BRAIN_ACCESSIBLE`
 - `supersede_thought` — replace an existing thought, preserving history and ADR metadata
 - `capture_adr` — record an Architecture Decision Record with auto-numbering, context, alternatives, consequences
 - `list_adrs` — list/filter ADRs by status or dimension
