@@ -57,7 +57,8 @@ Add to your Claude Code MCP settings:
       "command": "node",
       "args": ["/path/to/brain-mcp/dist/index.js"],
       "env": {
-        "OPENROUTER_API_KEY": "your-key-here"
+        "OPENROUTER_API_KEY": "your-key-here",
+        "BRAIN_NAME": "personal"
       }
     }
   }
