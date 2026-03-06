@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { getOrCreateBrain } from "./db.js";
 import { runMigrations } from "./migrate.js";
 import { registerCoreTools } from "./tools.js";
+import { registerCorePrompts } from "./prompts.js";
 
 const brainName = process.env.BRAIN_NAME || "personal";
 
@@ -35,6 +36,7 @@ The brain may not have the answer, but you should always check before assuming i
 let brainId: string;
 
 registerCoreTools(server, () => brainId);
+registerCorePrompts(server, () => brainId);
 
 async function main() {
   await runMigrations();

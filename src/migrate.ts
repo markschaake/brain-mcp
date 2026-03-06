@@ -79,11 +79,13 @@ export async function runMigrations(): Promise<void> {
         ) {
           throw new Error(
             `Migration ${file} failed: pgvector extension not available. ` +
-              `Install pgvector on your PostgreSQL server or use the included docker-compose.yml.`
+              `Install pgvector on your PostgreSQL server or use the included docker-compose.yml.`,
+            { cause: err }
           );
         }
         throw new Error(
-          `Migration ${file} failed: ${err instanceof Error ? err.message : err}`
+          `Migration ${file} failed: ${err instanceof Error ? err.message : err}`,
+          { cause: err }
         );
       }
     }

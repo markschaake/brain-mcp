@@ -1,6 +1,6 @@
 {
   "name": "brain-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "",
   "main": "dist/index.js",
@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "lint": "eslint src/",
     "prepare": "tsc"
   },
   "keywords": [],
@@ -28,8 +29,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.3.4",
     "@types/pg": "^8.18.0",
-    "typescript": "^5.9.3"
+    "eslint": "^10.0.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
   }
 }
