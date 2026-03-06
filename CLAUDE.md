@@ -71,3 +71,13 @@ Three source files:
 - Zod v4 imported as `zod/v4`
 - pnpm package manager
 - TypeScript strict mode, target ES2022
+
+## Using Brain Tools in Conversation
+
+The brain-mcp server is a persistent knowledge store. Follow these rules:
+
+1. **Search before saying "I don't know."** If a question might be answered by stored knowledge, call `search` first. The brain uses semantic matching so exact wording is not needed.
+2. **Explore dimensions for deep context.** When a question is about a specific person, project, or topic, use `explore_dimension` to get the full picture.
+3. **Capture new knowledge proactively.** When notable facts, decisions, or observations come up during conversation, offer to store them with `capture_thought`.
+4. **Keep knowledge current.** When information is corrected or updated, use `supersede_thought` to replace the outdated version rather than just adding a new thought.
+5. **Use `list_dimensions` to orient.** When unsure what knowledge exists, start by listing dimensions to see what categories are populated.

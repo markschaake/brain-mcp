@@ -6,10 +6,28 @@ import { generateEmbedding } from "./embeddings.js";
 
 const brainName = process.env.BRAIN_NAME || "personal";
 
-const server = new McpServer({
-  name: "brain-mcp",
-  version: "0.1.0",
-});
+const server = new McpServer(
+  {
+    name: "brain-mcp",
+    version: "0.1.0",
+    description:
+      "Persistent semantic memory. Stores facts, decisions, observations, and reference knowledge organized by dimensions. Always search the brain before claiming information is unavailable.",
+  },
+  {
+    instructions: `This server is a persistent knowledge store. It contains facts, decisions, observations, and notes organized by dimensions (people, projects, topics, tags, etc.). The brain may serve as personal memory, a project knowledge base, or any other context.
+
+CRITICAL BEHAVIOR: When a question might be answered by stored knowledge, ALWAYS search the brain first before responding "I don't know." The brain uses semantic search, so you do not need exact keywords — describe what you are looking for in natural language.
+
+Workflow:
+1. A question might involve stored knowledge → call "search" with a relevant query
+2. Need to understand a topic, person, or project in depth → call "explore_dimension"
+3. Not sure what knowledge exists → call "list_dimensions" to see categories, then explore
+4. New information worth remembering comes up → call "capture_thought"
+5. Stored information needs correction or updating → call "supersede_thought"
+
+The brain may not have the answer, but you should always check before assuming it doesn't.`,
+  }
+);
 
 let brainId: string;
 
@@ -17,7 +35,7 @@ let brainId: string;
 
 server.tool(
   "capture_thought",
-  "Store a thought with optional semantic embedding and dimension links. Use this to remember insights, decisions, observations, or any knowledge worth retrieving later.",
+  "Store a fact, decision, observation, or question worth remembering. Always add dimensions (person, project, topic, etc.) to make retrieval easier. Use this whenever notable information comes up that should be preserved for future reference.",
   {
     content: z.string().describe("The thought content to capture"),
     source: z
@@ -137,7 +155,7 @@ server.tool(
 
 server.tool(
   "search",
-  "Semantic search across thoughts. Finds relevant knowledge even when exact words don't match. Optionally filter by brain or dimensions.",
+  "Search stored knowledge. ALWAYS call this before saying you don't have information that the brain might contain. Uses semantic matching — describe what you're looking for in plain language. Filter by dimension or thought type for precision.",
   {
     query: z.string().describe("Natural language search query"),
     brain: z
@@ -289,7 +307,7 @@ server.tool(
 
 server.tool(
   "list_recent",
-  "List recent thoughts chronologically. Good for reviewing what was recently captured.",
+  "List recently stored thoughts in chronological order. Useful for reviewing what has been captured or catching up on recent knowledge additions.",
   {
     source: z.string().optional().describe("Filter by source"),
     thought_type: z
@@ -360,7 +378,7 @@ server.tool(
 
 server.tool(
   "explore_dimension",
-  "Show all thoughts connected to a dimension. Use to explore everything known about a person, project, topic, etc.",
+  "Retrieve all knowledge linked to a specific person, project, topic, or other dimension. Use this when the user asks about a particular subject and you want everything the brain knows about it.",
   {
     name: z.string().describe("Dimension name to explore"),
     type: z.string().optional().describe("Dimension type filter"),
@@ -463,7 +481,7 @@ server.tool(
 
 server.tool(
   "list_dimensions",
-  "List all dimensions in the current brain, with thought counts.",
+  "List all known categories of knowledge (people, projects, topics, etc.) with thought counts. Use this to discover what the brain contains before searching, or to orient yourself in an unfamiliar brain.",
   {
     type: z.string().optional().describe("Filter by dimension type"),
     include_superseded: z
@@ -509,7 +527,7 @@ server.tool(
 
 server.tool(
   "supersede_thought",
-  "Replace an existing thought with an updated version. Marks the old thought as superseded and creates a new active thought linked back. Use this when a decision changes, a fact is updated, or knowledge evolves.",
+  "Replace an existing thought with an updated version, preserving history. Use this when the user corrects a fact, changes a decision, or updates any previously stored knowledge. The old thought is marked superseded and linked to its replacement.",
   {
     old_thought_id: z.string().uuid().describe("ID of the thought to supersede"),
     content: z.string().describe("The updated thought content"),
