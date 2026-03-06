@@ -16,6 +16,7 @@ This repo provides two servers:
 pnpm install          # install dependencies
 pnpm run build        # compile TypeScript (tsc) → dist/
 pnpm run dev          # watch mode compilation
+pnpm run lint         # run ESLint
 docker compose up -d  # start PostgreSQL with pgvector (port 5488)
 ```
 
@@ -40,11 +41,12 @@ No test framework is configured yet.
 Source files:
 - `src/index.ts` — brain-mcp entry point (creates server, registers core tools, connects)
 - `src/code.ts` — brain-code-mcp entry point (creates server, registers core + code tools, connects)
-- `src/tools.ts` — shared tool registration: all core tools + ADR tools via `registerCoreTools(server, getBrainId)`
-- `src/db.ts` — pg connection pool, `query()`, `getOrCreateBrain()`, and `withTransaction()` helpers
+- `src/tools.ts` — shared tool registration: all core tools + ADR tools via `registerCoreTools(server, getBrainId, resolveBrain, accessible)`
+- `src/db.ts` — pg connection pool, `query()`, `getOrCreateBrain()`, `resolveBrainId()`, `lookupBrainId()`, `parseAccessible()`, and `withTransaction()` helpers
 - `src/migrate.ts` — auto-migration runner: applies `migrations/*.sql` on startup, detects pre-existing schemas
 - `src/embeddings.ts` — embedding generation via OpenRouter SDK (default model: `openai/text-embedding-3-small`, 1536 dimensions)
 - `src/git.ts` — git operations for freshness detection (`getCurrentSha`, `getFileDiff`, `didLinesChange`, `getFileHash`)
+- `src/prompts.ts` — MCP prompt registration: `registerCorePrompts()` registers orientation and workflow prompts
 
 **Database schema** (`migrations/001_schema.sql` + `002_temporality.sql`):
 - `brains` — isolated knowledge spaces (selected by `BRAIN_NAME` env var, default "personal")
@@ -76,6 +78,16 @@ Source files:
 - `check_freshness` — git-based staleness detection for code-linked thoughts
 - `refresh_stale_knowledge` — find stale thoughts with git diffs for review
 
+**Core prompts** (both servers):
+- `brain_overview` — comprehensive orientation: thought counts by type, dimensions, recent thoughts, ADR summary, open questions
+- `deep_dive` — deep dive into a dimension with all linked thoughts, co-occurring dimensions, and ADRs (args: topic, type)
+- `decision_review` — review active decisions and ADRs, flagging overdue revisit dates (args: dimension)
+- `capture_session` — set up a knowledge capture session with existing taxonomy and related knowledge (args: topic, source)
+
+**Code prompts** (brain-code-mcp only):
+- `codebase_knowledge` — all knowledge about a repo grouped by file/symbol, with optional freshness checks (args: repo, repo_path)
+- `file_context` — all knowledge about a specific file with freshness and semantically related unlinked knowledge (args: repo, file, repo_path)
+
 **Code-linked dimension types** (used by brain-code-mcp):
 - `repo` — repository name, metadata: `{}` (extensible)
 - `file` — repo-relative path, metadata: `{repo, line_start, line_end, git_sha}`
@@ -89,6 +101,12 @@ Source files:
 - `OPENROUTER_API_KEY` — required for embedding generation
 - `EMBEDDING_MODEL` — override embedding model (default: `openai/text-embedding-3-small`)
 - `BRAIN_NAME` — which brain to use (default: `personal`)
+- `BRAIN_ACCESSIBLE` — comma-separated whitelist of brain names this instance can access (empty = all brains)
+
+**Multi-brain support:**
+- All tools and prompts accept an optional `brain` parameter to target a specific brain by name at runtime
+- Read tools accept `brain: "*"` to query across all accessible brains; write tools reject `"*"`
+- `BRAIN_ACCESSIBLE` restricts which brains can be accessed; when empty (default), all brains are accessible
 
 ## Conventions
 
@@ -96,6 +114,7 @@ Source files:
 - Zod v4 imported as `zod/v4`
 - pnpm package manager
 - TypeScript strict mode, target ES2022
+- ESLint with typescript-eslint (flat config)
 
 ## Using Brain Tools in Conversation
 

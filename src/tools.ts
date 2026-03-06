@@ -68,7 +68,12 @@ export async function linkDimensions(
   return linked;
 }
 
-export function registerCoreTools(server: McpServer, getBrainId: () => string) {
+export function registerCoreTools(
+  server: McpServer,
+  getBrainId: () => string,
+  resolveBrain: (name?: string, create?: boolean) => Promise<string>,
+  accessible: string[] = []
+) {
   // -- capture_thought --
 
   server.registerTool("capture_thought", {
@@ -98,9 +103,16 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .boolean()
         .optional()
         .describe("Skip embedding generation (useful for bulk imports)"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain."),
     },
-  }, async ({ content, source, dimensions, thought_type, metadata, skip_embedding }) => {
-    const brainId = getBrainId();
+  }, async ({ content, source, dimensions, thought_type, metadata, skip_embedding, brain }) => {
+    if (brain === "*") {
+      return { content: [{ type: "text" as const, text: "Error: wildcard '*' not allowed for write operations. Specify a brain name." }] };
+    }
+    const brainId = await resolveBrain(brain, true);
     const type = thought_type || "observation";
     let embedding: number[] | null = null;
     if (!skip_embedding) {
@@ -204,7 +216,8 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
       limit: z.number().max(100).optional().describe("Max results (default 10, max 100)"),
     },
   }, async ({ query: searchQuery, brain, dimension, thought_type, include_superseded, limit }) => {
-    const brainId = getBrainId();
+    const useWildcard = brain === "*";
+    const brainId = useWildcard ? getBrainId() : await resolveBrain(brain);
     const maxResults = Math.min(limit || 10, 100);
 
     let queryEmbedding: number[];
@@ -242,12 +255,12 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
     }
 
     const conditions: string[] = ["t.embedding IS NOT NULL"];
-    if (brain === "*") {
-      // Search all brains
-    } else if (brain) {
-      conditions.push(`b.name = $${paramIdx}`);
-      params.push(brain);
-      paramIdx++;
+    if (useWildcard) {
+      if (accessible.length > 0) {
+        conditions.push(`b.name = ANY($${paramIdx})`);
+        params.push(accessible);
+        paramIdx++;
+      }
     } else {
       conditions.push(`t.brain_id = $${paramIdx}`);
       params.push(brainId);
@@ -341,19 +354,38 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .optional()
         .describe("Include superseded and archived thoughts (default: only active)"),
       limit: z.number().max(100).optional().describe("Max results (default 20, max 100)"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to list across all accessible brains."),
     },
-  }, async ({ source, thought_type, include_superseded, limit }) => {
-    const brainId = getBrainId();
+  }, async ({ source, thought_type, include_superseded, limit, brain }) => {
+    const useWildcard = brain === "*";
+    const brainId = useWildcard ? getBrainId() : await resolveBrain(brain);
     const maxResults = Math.min(limit || 20, 100);
 
-    let sql = `
+    let sql = useWildcard
+      ? `
+      SELECT t.id, t.content, t.source, t.created_at, t.thought_type, t.status,
+             t.embedding IS NOT NULL as has_embedding, b.name as brain_name
+      FROM thoughts t
+      JOIN brains b ON b.id = t.brain_id
+      WHERE 1=1
+    `
+      : `
       SELECT t.id, t.content, t.source, t.created_at, t.thought_type, t.status,
              t.embedding IS NOT NULL as has_embedding
       FROM thoughts t
       WHERE t.brain_id = $1
     `;
-    const params: unknown[] = [brainId];
-    let paramIdx = 2;
+    const params: unknown[] = useWildcard ? [] : [brainId];
+    let paramIdx = useWildcard ? 1 : 2;
+
+    if (useWildcard && accessible.length > 0) {
+      sql += ` AND b.name = ANY($${paramIdx})`;
+      params.push(accessible);
+      paramIdx++;
+    }
 
     if (!include_superseded) {
       sql += ` AND t.status = 'active'`;
@@ -382,6 +414,7 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
       thought_type: string;
       status: string;
       has_embedding: boolean;
+      brain_name?: string;
     }>(sql, params);
 
     if (result.rows.length === 0) {
@@ -391,7 +424,8 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
     const text = result.rows
       .map((r, i) => {
         const statusLabel = r.status !== "active" ? ` [${r.status.toUpperCase()}]` : "";
-        return `${i + 1}. ${r.id} [${r.thought_type}]${statusLabel} [${r.source || "unknown"}] ${r.created_at}\n   ${r.content.length > 200 ? r.content.slice(0, 200) + "..." : r.content}`;
+        const brainLabel = useWildcard && r.brain_name ? `${r.brain_name}/` : "";
+        return `${i + 1}. ${r.id} [${r.thought_type}]${statusLabel} [${brainLabel}${r.source || "unknown"}] ${r.created_at}\n   ${r.content.length > 200 ? r.content.slice(0, 200) + "..." : r.content}`;
       })
       .join("\n\n");
 
@@ -415,19 +449,34 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .optional()
         .describe("Include superseded and archived thoughts (default: only active)"),
       limit: z.number().max(100).optional().describe("Max results (default 20, max 100)"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to explore across all accessible brains."),
     },
-  }, async ({ name, type, thought_type, include_superseded, limit }) => {
-    const brainId = getBrainId();
+  }, async ({ name, type, thought_type, include_superseded, limit, brain }) => {
+    const useWildcard = brain === "*";
+    const brainId = useWildcard ? getBrainId() : await resolveBrain(brain);
     const maxResults = Math.min(limit || 20, 100);
 
-    let dimSql = `
+    let dimSql = useWildcard
+      ? `
+      SELECT d.id, d.name, d.type, d.metadata
+      FROM dimensions d
+      WHERE d.name = $1
+    `
+      : `
       SELECT d.id, d.name, d.type, d.metadata
       FROM dimensions d
       WHERE d.brain_id = $1 AND d.name = $2
     `;
-    const dimParams: unknown[] = [brainId, name];
+    const dimParams: unknown[] = useWildcard ? [name] : [brainId, name];
+    if (useWildcard && accessible.length > 0) {
+      dimSql += ` AND d.brain_id IN (SELECT id FROM brains WHERE name = ANY($${dimParams.length + 1}))`;
+      dimParams.push(accessible);
+    }
     if (type) {
-      dimSql += ` AND d.type = $3`;
+      dimSql += ` AND d.type = $${dimParams.length + 1}`;
       dimParams.push(type);
     }
 
@@ -514,30 +563,52 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .boolean()
         .optional()
         .describe("Include superseded and archived thoughts in counts (default: only active)"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to list across all accessible brains."),
     },
-  }, async ({ type, include_superseded }) => {
-    const brainId = getBrainId();
+  }, async ({ type, include_superseded, brain }) => {
+    const useWildcard = brain === "*";
+    const brainId = useWildcard ? getBrainId() : await resolveBrain(brain);
     const statusFilter = include_superseded ? "" : " AND t.status = 'active'";
-    let sql = `
+    let sql = useWildcard
+      ? `
+      SELECT d.name, d.type, COUNT(t.id) as thought_count, b.name as brain_name
+      FROM dimensions d
+      LEFT JOIN thought_dimensions td ON td.dimension_id = d.id
+      LEFT JOIN thoughts t ON t.id = td.thought_id${statusFilter}
+      JOIN brains b ON b.id = d.brain_id
+      WHERE 1=1
+    `
+      : `
       SELECT d.name, d.type, COUNT(t.id) as thought_count
       FROM dimensions d
       LEFT JOIN thought_dimensions td ON td.dimension_id = d.id
       LEFT JOIN thoughts t ON t.id = td.thought_id${statusFilter}
       WHERE d.brain_id = $1
     `;
-    const params: unknown[] = [brainId];
+    const params: unknown[] = useWildcard ? [] : [brainId];
+
+    if (useWildcard && accessible.length > 0) {
+      sql += ` AND b.name = ANY($${params.length + 1})`;
+      params.push(accessible);
+    }
 
     if (type) {
-      sql += ` AND d.type = $2`;
+      sql += ` AND d.type = $${params.length + 1}`;
       params.push(type);
     }
 
-    sql += ` GROUP BY d.id, d.name, d.type ORDER BY thought_count DESC, d.name`;
+    sql += useWildcard
+      ? ` GROUP BY d.id, d.name, d.type, b.name ORDER BY thought_count DESC, d.name`
+      : ` GROUP BY d.id, d.name, d.type ORDER BY thought_count DESC, d.name`;
 
     const result = await query<{
       name: string;
       type: string;
       thought_count: string;
+      brain_name?: string;
     }>(sql, params);
 
     if (result.rows.length === 0) {
@@ -545,7 +616,10 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
     }
 
     const text = result.rows
-      .map((r) => `${r.name} (${r.type}) — ${r.thought_count} thoughts`)
+      .map((r) => {
+        const brainLabel = useWildcard && r.brain_name ? `[${r.brain_name}] ` : "";
+        return `${brainLabel}${r.name} (${r.type}) — ${r.thought_count} thoughts`;
+      })
       .join("\n");
 
     return { content: [{ type: "text" as const, text }] };
@@ -579,9 +653,16 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .boolean()
         .optional()
         .describe("Skip embedding generation"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain."),
     },
-  }, async ({ old_thought_id, content, source, thought_type, dimensions, metadata, skip_embedding }) => {
-    const brainId = getBrainId();
+  }, async ({ old_thought_id, content, source, thought_type, dimensions, metadata, skip_embedding, brain }) => {
+    if (brain === "*") {
+      return { content: [{ type: "text" as const, text: "Error: wildcard '*' not allowed for write operations. Specify a brain name." }] };
+    }
+    const brainId = await resolveBrain(brain, true);
 
     let embedding: number[] | null = null;
     if (!skip_embedding) {
@@ -735,9 +816,16 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .boolean()
         .optional()
         .describe("Skip embedding generation"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain."),
     },
-  }, async ({ title, decision, context, alternatives, consequences, status, revisit_date, dimensions, skip_embedding }) => {
-    const brainId = getBrainId();
+  }, async ({ title, decision, context, alternatives, consequences, status, revisit_date, dimensions, skip_embedding, brain }) => {
+    if (brain === "*") {
+      return { content: [{ type: "text" as const, text: "Error: wildcard '*' not allowed for write operations. Specify a brain name." }] };
+    }
+    const brainId = await resolveBrain(brain, true);
     const adrStatus = status || "accepted";
 
     // Get next ADR number
@@ -821,16 +909,27 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         .boolean()
         .optional()
         .describe("Include superseded ADRs (default: only active thoughts)"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to list across all accessible brains."),
     },
-  }, async ({ status, dimension, include_superseded }) => {
-    const brainId = getBrainId();
+  }, async ({ status, dimension, include_superseded, brain }) => {
+    const useWildcard = brain === "*";
+    const brainId = useWildcard ? getBrainId() : await resolveBrain(brain);
 
-    let sql = `
+    let sql = useWildcard
+      ? `
+      SELECT t.id, t.content, t.metadata, t.created_at, t.status, b.name as brain_name
+      FROM thoughts t
+      JOIN brains b ON b.id = t.brain_id
+    `
+      : `
       SELECT t.id, t.content, t.metadata, t.created_at, t.status
       FROM thoughts t
     `;
-    const params: unknown[] = [brainId];
-    let paramIdx = 2;
+    const params: unknown[] = useWildcard ? [] : [brainId];
+    let paramIdx = useWildcard ? 1 : 2;
 
     if (dimension) {
       sql += `
@@ -841,10 +940,17 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
       paramIdx++;
     }
 
-    const conditions = [
-      `t.brain_id = $1`,
+    const conditions: string[] = [
       `t.metadata->>'adr' = 'true'`,
     ];
+    if (!useWildcard) {
+      conditions.push(`t.brain_id = $1`);
+    }
+    if (useWildcard && accessible.length > 0) {
+      conditions.push(`b.name = ANY($${paramIdx})`);
+      params.push(accessible);
+      paramIdx++;
+    }
 
     if (!include_superseded) {
       conditions.push(`t.status = 'active'`);
@@ -864,6 +970,7 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
       metadata: Record<string, unknown>;
       created_at: string;
       status: string;
+      brain_name?: string;
     }>(sql, params);
 
     if (result.rows.length === 0) {
@@ -896,7 +1003,8 @@ export function registerCoreTools(server: McpServer, getBrainId: () => string) {
         const meta = r.metadata;
         const dims = dimsByThought.get(r.id);
         const supersededLabel = r.status !== "active" ? ` [THOUGHT ${r.status.toUpperCase()}]` : "";
-        const line = `ADR-${meta.adr_number}: ${meta.adr_title} [${meta.adr_status}]${supersededLabel} — ${meta.adr_decided_date || r.created_at}`;
+        const brainLabel = useWildcard && r.brain_name ? `[${r.brain_name}] ` : "";
+        const line = `${brainLabel}ADR-${meta.adr_number}: ${meta.adr_title} [${meta.adr_status}]${supersededLabel} — ${meta.adr_decided_date || r.created_at}`;
         const parts = [line];
         if (dims && dims.length > 0) {
           parts.push(`  Dimensions: ${dims.join(", ")}`);

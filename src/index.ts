@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { getOrCreateBrain } from "./db.js";
+import { getOrCreateBrain, resolveBrainId, lookupBrainId, parseAccessible } from "./db.js";
 import { runMigrations } from "./migrate.js";
 import { registerCoreTools } from "./tools.js";
 import { registerCorePrompts } from "./prompts.js";
 
 const brainName = process.env.BRAIN_NAME || "personal";
+const accessible = parseAccessible(brainName);
 
 const server = new McpServer(
   {
@@ -35,8 +36,14 @@ The brain may not have the answer, but you should always check before assuming i
 
 let brainId: string;
 
-registerCoreTools(server, () => brainId);
-registerCorePrompts(server, () => brainId);
+async function resolveBrain(name?: string, create?: boolean): Promise<string> {
+  if (!name || name === brainName) return brainId;
+  if (create) return resolveBrainId(name, accessible);
+  return lookupBrainId(name, accessible);
+}
+
+registerCoreTools(server, () => brainId, resolveBrain, accessible);
+registerCorePrompts(server, () => brainId, resolveBrain);
 
 async function main() {
   await runMigrations();

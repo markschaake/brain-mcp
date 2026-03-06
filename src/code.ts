@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
-import { query, getOrCreateBrain, withTransaction, type QueryFn } from "./db.js";
+import { query, getOrCreateBrain, resolveBrainId, lookupBrainId, parseAccessible, withTransaction, type QueryFn } from "./db.js";
 import { generateEmbedding } from "./embeddings.js";
 import { registerCoreTools, upsertDimension, linkThoughtDimension } from "./tools.js";
 import { registerCorePrompts, textMsg } from "./prompts.js";
@@ -11,6 +11,7 @@ import path from "node:path";
 import { runMigrations } from "./migrate.js";
 
 const brainName = process.env.BRAIN_NAME || "personal";
+const accessible = parseAccessible(brainName);
 
 const server = new McpServer(
   {
@@ -43,9 +44,15 @@ The brain may not have the answer, but you should always check before assuming i
 
 let brainId: string;
 
+async function resolveBrain(name?: string, create?: boolean): Promise<string> {
+  if (!name || name === brainName) return brainId;
+  if (create) return resolveBrainId(name, accessible);
+  return lookupBrainId(name, accessible);
+}
+
 // Register all core brain-mcp tools and prompts
-registerCoreTools(server, () => brainId);
-registerCorePrompts(server, () => brainId);
+registerCoreTools(server, () => brainId, resolveBrain, accessible);
+registerCorePrompts(server, () => brainId, resolveBrain);
 
 // -- Code-specific dimension helpers --
 
@@ -137,6 +144,10 @@ server.registerTool("capture_code_context", {
       .optional()
       .describe("Additional dimensions (project, topic, etc.)"),
     skip_embedding: z.boolean().optional().describe("Skip embedding generation"),
+    brain: z
+      .string()
+      .optional()
+      .describe("Target a specific brain by name. Omit to use the default brain."),
   },
 }, async ({
   content,
@@ -151,8 +162,12 @@ server.registerTool("capture_code_context", {
   file_hash,
   dimensions,
   skip_embedding,
+  brain,
 }) => {
-  const bid = brainId;
+  if (brain === "*") {
+    return { content: [{ type: "text" as const, text: "Error: wildcard '*' not allowed for write operations. Specify a brain name." }] };
+  }
+  const bid = await resolveBrain(brain, true);
   const type = thought_type || "fact";
 
   let embedding: number[] | null = null;
@@ -226,9 +241,14 @@ server.registerTool("search_code", {
       .optional()
       .describe("Filter by thought type"),
     limit: z.number().max(100).optional().describe("Max results (default 10, max 100)"),
+    brain: z
+      .string()
+      .optional()
+      .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to search across all accessible brains."),
   },
-}, async ({ query: searchQuery, repo, file, symbol, thought_type, limit }) => {
-  const bid = brainId;
+}, async ({ query: searchQuery, repo, file, symbol, thought_type, limit, brain }) => {
+  const useWildcard = brain === "*";
+  const bid = useWildcard ? brainId : await resolveBrain(brain);
   const maxResults = Math.min(limit || 10, 100);
 
   let queryEmbedding: number[];
@@ -258,12 +278,20 @@ server.registerTool("search_code", {
   // Join to code dimensions based on filters
   const joins: string[] = [];
   const conditions: string[] = [
-    `t.brain_id = $${paramIdx}`,
     `t.embedding IS NOT NULL`,
     `t.status = 'active'`,
   ];
-  params.push(bid);
-  paramIdx++;
+  if (useWildcard) {
+    if (accessible.length > 0) {
+      conditions.push(`t.brain_id IN (SELECT id FROM brains WHERE name = ANY($${paramIdx}))`);
+      params.push(accessible);
+      paramIdx++;
+    }
+  } else {
+    conditions.push(`t.brain_id = $${paramIdx}`);
+    params.push(bid);
+    paramIdx++;
+  }
 
   if (repo) {
     joins.push(`JOIN thought_dimensions td_repo ON td_repo.thought_id = t.id
@@ -394,9 +422,14 @@ server.registerTool("check_freshness", {
     thought_id: z.string().uuid().optional().describe("Check a specific thought"),
     repo: z.string().optional().describe("Check all thoughts linked to this repo"),
     file: z.string().optional().describe("Check all thoughts linked to this file"),
+    brain: z
+      .string()
+      .optional()
+      .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to check across all accessible brains."),
   },
-}, async ({ repo_path, thought_id, repo, file }) => {
-  const bid = brainId;
+}, async ({ repo_path, thought_id, repo, file, brain }) => {
+  const useWildcard = brain === "*";
+  const bid = useWildcard ? brainId : await resolveBrain(brain);
 
   // Find thoughts with file dimensions
   let sql = `
@@ -405,12 +438,22 @@ server.registerTool("check_freshness", {
     FROM thoughts t
     JOIN thought_dimensions td ON td.thought_id = t.id
     JOIN dimensions d ON d.id = td.dimension_id
-    WHERE t.brain_id = $1
-      AND t.status = 'active'
+    WHERE t.status = 'active'
       AND d.type = 'file'
   `;
-  const params: unknown[] = [bid];
-  let paramIdx = 2;
+  const params: unknown[] = [];
+  let paramIdx = 1;
+  if (useWildcard) {
+    if (accessible.length > 0) {
+      sql += ` AND t.brain_id IN (SELECT id FROM brains WHERE name = ANY($${paramIdx}))`;
+      params.push(accessible);
+      paramIdx++;
+    }
+  } else {
+    sql += ` AND t.brain_id = $${paramIdx}`;
+    params.push(bid);
+    paramIdx++;
+  }
 
   if (thought_id) {
     sql += ` AND t.id = $${paramIdx}`;
@@ -545,14 +588,16 @@ server.registerTool("check_freshness", {
       }
     }
 
-    // Cache freshness result
-    const freshnessData = { status: overallStatus, last_checked: now };
-    const existingMeta = thought.metadata || {};
-    const updatedMeta = { ...existingMeta, code_freshness: freshnessData };
-    await query(
-      `UPDATE thoughts SET metadata = $1 WHERE id = $2`,
-      [JSON.stringify(updatedMeta), thoughtId]
-    );
+    // Cache freshness result (skip in wildcard mode to keep it read-only)
+    if (!useWildcard) {
+      const freshnessData = { status: overallStatus, last_checked: now };
+      const existingMeta = thought.metadata || {};
+      const updatedMeta = { ...existingMeta, code_freshness: freshnessData };
+      await query(
+        `UPDATE thoughts SET metadata = $1 WHERE id = $2`,
+        [JSON.stringify(updatedMeta), thoughtId]
+      );
+    }
 
     const statusIcon = overallStatus === "fresh" ? "FRESH" : overallStatus === "stale" ? "STALE" : "UNKNOWN";
     const preview = thought.content.length > 120 ? thought.content.slice(0, 120) + "..." : thought.content;
@@ -576,13 +621,35 @@ server.registerTool("refresh_stale_knowledge", {
       .optional()
       .describe("Only check changes since this SHA (default: uses each thought's captured SHA)"),
     limit: z.number().max(100).optional().describe("Max results (default 10, max 100)"),
+    brain: z
+      .string()
+      .optional()
+      .describe("Target a specific brain by name. Omit to use the default brain. Use '*' to check across all accessible brains."),
   },
-}, async ({ repo, repo_path, since_sha, limit }) => {
-  const bid = brainId;
+}, async ({ repo, repo_path, since_sha, limit, brain }) => {
+  const useWildcard = brain === "*";
+  const bid = useWildcard ? brainId : await resolveBrain(brain);
   const maxResults = Math.min(limit || 10, 100);
 
   // Find thoughts linked to files in this repo
-  const sql = `
+  const accessibleFilter = useWildcard && accessible.length > 0
+    ? `AND t.brain_id IN (SELECT id FROM brains WHERE name = ANY($3))`
+    : "";
+  const sql = useWildcard
+    ? `
+    SELECT DISTINCT t.id, t.content, t.thought_type, t.metadata,
+           d.name as file_path, d.metadata as dim_metadata
+    FROM thoughts t
+    JOIN thought_dimensions td ON td.thought_id = t.id
+    JOIN dimensions d ON d.id = td.dimension_id
+    WHERE t.status = 'active'
+      AND d.type = 'file'
+      AND d.metadata->>'repo' = $1
+      ${accessibleFilter}
+    ORDER BY t.created_at DESC
+    LIMIT $2
+  `
+    : `
     SELECT DISTINCT t.id, t.content, t.thought_type, t.metadata,
            d.name as file_path, d.metadata as dim_metadata
     FROM thoughts t
@@ -603,7 +670,9 @@ server.registerTool("refresh_stale_knowledge", {
     metadata: Record<string, unknown> | null;
     file_path: string;
     dim_metadata: Record<string, unknown> | null;
-  }>(sql, [bid, repo, maxResults * 3]); // fetch extra since we filter below
+  }>(sql, useWildcard
+    ? (accessible.length > 0 ? [repo, maxResults * 3, accessible] : [repo, maxResults * 3])
+    : [bid, repo, maxResults * 3]);
 
   if (result.rows.length === 0) {
     return {
@@ -673,9 +742,10 @@ server.registerPrompt("codebase_knowledge", {
   argsSchema: {
     repo: z.string().describe("Repository name"),
     repo_path: z.string().optional().describe("Absolute path to local checkout (enables freshness checks)"),
+    brain: z.string().optional().describe("Target a specific brain by name. Omit to use the default brain."),
   },
-}, async ({ repo, repo_path }) => {
-  const bid = brainId;
+}, async ({ repo, repo_path, brain }) => {
+  const bid = await resolveBrain(brain);
 
   // All thoughts linked to this repo (via repo, file, or symbol dimensions)
   const result = await query<{
@@ -843,9 +913,10 @@ server.registerPrompt("file_context", {
     repo: z.string().describe("Repository name"),
     file: z.string().describe("Repo-relative file path"),
     repo_path: z.string().optional().describe("Absolute path to local checkout (enables freshness check)"),
+    brain: z.string().optional().describe("Target a specific brain by name. Omit to use the default brain."),
   },
-}, async ({ repo, file, repo_path }) => {
-  const bid = brainId;
+}, async ({ repo, file, repo_path, brain }) => {
+  const bid = await resolveBrain(brain);
   const sections: string[] = [`## File Context: ${file} (${repo})`];
 
   // Thoughts linked to this file dimension

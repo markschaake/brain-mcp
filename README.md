@@ -46,6 +46,22 @@ You only need to configure one — brain-code-mcp includes all brain-mcp tools.
 | `check_freshness` | Check if code-linked knowledge is stale by comparing git state |
 | `refresh_stale_knowledge` | Find stale thoughts with git diffs for review |
 
+### Core prompts (both servers)
+
+| Prompt | Description |
+|--------|-------------|
+| `brain_overview` | Comprehensive orientation: thought counts, dimensions, recent thoughts, ADR summary, open questions |
+| `deep_dive` | Deep dive into a dimension with all linked thoughts, co-occurring dimensions, and ADRs |
+| `decision_review` | Review active decisions and ADRs, flagging overdue revisit dates |
+| `capture_session` | Set up a knowledge capture session with existing taxonomy and related knowledge |
+
+### Code prompts (brain-code-mcp only)
+
+| Prompt | Description |
+|--------|-------------|
+| `codebase_knowledge` | All knowledge about a repo grouped by file/symbol, with optional freshness checks |
+| `file_context` | All knowledge about a specific file with freshness and semantically related unlinked knowledge |
+
 ## Setup
 
 ### Prerequisites
@@ -122,6 +138,7 @@ Any PostgreSQL instance with the pgvector extension installed will work. Set `DA
 pnpm install
 pnpm run build
 pnpm run dev    # watch mode (tsc --watch)
+pnpm run lint   # run ESLint
 
 # Run directly
 OPENROUTER_API_KEY=your-key node dist/index.js      # brain-mcp
@@ -136,6 +153,35 @@ OPENROUTER_API_KEY=your-key node dist/code.js        # brain-code-mcp
 | `OPENROUTER_API_KEY` | Required for embedding generation | — |
 | `EMBEDDING_MODEL` | Override the embedding model | `openai/text-embedding-3-small` |
 | `BRAIN_NAME` | Which brain (knowledge space) to use | `personal` |
+| `BRAIN_ACCESSIBLE` | Comma-separated whitelist of brain names this instance can access. Empty = all brains accessible. | (empty) |
+
+## Multi-brain usage
+
+All tools and prompts accept an optional `brain` parameter to target a specific brain by name at runtime, without restarting the server. Omit it to use the default brain (`BRAIN_NAME`).
+
+Read-only tools (`search`, `list_recent`, `explore_dimension`, `list_dimensions`, `list_adrs`, `search_code`, `check_freshness`, `refresh_stale_knowledge`) also accept `brain: "*"` to query across all accessible brains.
+
+Write tools (`capture_thought`, `supersede_thought`, `capture_adr`, `capture_code_context`) reject `"*"` — you must specify a brain name for writes.
+
+Use `BRAIN_ACCESSIBLE` to restrict which brains a server instance can access:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "command": "npx",
+      "args": ["-y", "github:markschaake/brain-mcp"],
+      "env": {
+        "DATABASE_URL": "postgresql://user:pass@host:5432/brain",
+        "BRAIN_NAME": "personal",
+        "BRAIN_ACCESSIBLE": "personal,work,shared"
+      }
+    }
+  }
+}
+```
+
+When `BRAIN_ACCESSIBLE` is empty (default), all brains are accessible.
 
 ## Architecture
 
@@ -150,6 +196,7 @@ OPENROUTER_API_KEY=your-key node dist/code.js        # brain-code-mcp
 | `src/migrate.ts` | Auto-migration runner (applies `migrations/*.sql` on startup) |
 | `src/embeddings.ts` | Embedding generation via OpenRouter |
 | `src/git.ts` | Git operations for freshness detection |
+| `src/prompts.ts` | MCP prompt registration (core prompts for both servers) |
 
 ### Database schema
 

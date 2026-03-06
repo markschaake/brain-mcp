@@ -10,14 +10,21 @@ export function textMsg(role: "user" | "assistant", text: string): PromptMessage
   return { role, content: { type: "text", text } };
 }
 
-export function registerCorePrompts(server: McpServer, getBrainId: () => string) {
+export function registerCorePrompts(
+  server: McpServer,
+  getBrainId: () => string,
+  resolveBrain: (name?: string, create?: boolean) => Promise<string>
+) {
   // -- brain_overview --
 
   server.registerPrompt("brain_overview", {
     description:
       "Get a comprehensive overview of what this brain knows: thought counts by type, dimensions grouped by type, recent thoughts, ADR summary, and open questions. Replaces 4-5 sequential tool calls for orientation.",
-  }, async () => {
-    const brainId = getBrainId();
+    argsSchema: {
+      brain: z.string().optional().describe("Target a specific brain by name. Omit to use the default brain."),
+    },
+  }, async ({ brain }) => {
+    const brainId = await resolveBrain(brain);
 
     const [countsByType, dimensionsByType, recentThoughts, adrSummary, openQuestions] =
       await Promise.all([
@@ -131,9 +138,10 @@ export function registerCorePrompts(server: McpServer, getBrainId: () => string)
     argsSchema: {
       topic: z.string().describe("The dimension name to deep-dive into"),
       type: z.string().optional().describe("Dimension type filter (e.g. person, project, topic)"),
+      brain: z.string().optional().describe("Target a specific brain by name. Omit to use the default brain."),
     },
-  }, async ({ topic, type }) => {
-    const brainId = getBrainId();
+  }, async ({ topic, type, brain }) => {
+    const brainId = await resolveBrain(brain);
 
     // Find matching dimensions
     let dimSql = `SELECT id, name, type, metadata FROM dimensions WHERE brain_id = $1 AND name = $2`;
@@ -266,9 +274,10 @@ export function registerCorePrompts(server: McpServer, getBrainId: () => string)
       "Review all active decisions and ADRs, flagging any with overdue revisit dates. Optionally filter by dimension.",
     argsSchema: {
       dimension: z.string().optional().describe("Filter to decisions linked to this dimension name"),
+      brain: z.string().optional().describe("Target a specific brain by name. Omit to use the default brain."),
     },
-  }, async ({ dimension }) => {
-    const brainId = getBrainId();
+  }, async ({ dimension, brain }) => {
+    const brainId = await resolveBrain(brain);
 
     // Fetch all active decisions (ADR and non-ADR)
     let sql = `
@@ -398,9 +407,10 @@ export function registerCorePrompts(server: McpServer, getBrainId: () => string)
     argsSchema: {
       topic: z.string().optional().describe("Topic to focus the session on"),
       source: z.string().optional().describe("Source label for captured thoughts"),
+      brain: z.string().optional().describe("Target a specific brain by name. Omit to use the default brain."),
     },
-  }, async ({ topic, source }) => {
-    const brainId = getBrainId();
+  }, async ({ topic, source, brain }) => {
+    const brainId = await resolveBrain(brain);
 
     // Get all dimensions as taxonomy
     const dimsResult = await query<{ name: string; type: string; thought_count: string }>(
