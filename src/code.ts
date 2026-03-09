@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import { query, getOrCreateBrain, resolveBrainId, lookupBrainId, parseAccessible, withTransaction, type QueryFn } from "./db.js";
 import { generateEmbedding } from "./embeddings.js";
-import { registerCoreTools, upsertDimension, linkThoughtDimension } from "./tools.js";
+import { registerCoreTools, upsertDimension, linkThoughtDimension, jsonArray } from "./tools.js";
 import { registerCorePrompts, textMsg } from "./prompts.js";
 import { getCurrentSha, getFileDiff, didLinesChange, getFileHash } from "./git.js";
 import path from "node:path";
@@ -133,14 +133,13 @@ server.registerTool("capture_code_context", {
       .describe("Type of thought (default: fact)"),
     git_sha: z.string().optional().describe("Current git commit SHA"),
     file_hash: z.string().optional().describe("SHA-256 hash of file contents"),
-    dimensions: z
-      .array(
+    dimensions: jsonArray(z.array(
         z.object({
           name: z.string(),
           type: z.string(),
           context: z.string().optional(),
         })
-      )
+      ))
       .optional()
       .describe("Additional dimensions (project, topic, etc.)"),
     skip_embedding: z.boolean().optional().describe("Skip embedding generation"),

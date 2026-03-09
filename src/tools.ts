@@ -11,6 +11,19 @@ export const dimensionSchema = z.object({
 
 export type DimensionInput = z.infer<typeof dimensionSchema>;
 
+/** Wrap an array schema to also accept JSON-stringified arrays (MCP client compat). */
+export function jsonArray<T extends z.ZodType>(schema: z.ZodArray<T>) {
+  return z.preprocess(
+    (val) => {
+      if (typeof val === "string") {
+        try { return JSON.parse(val); } catch { return val; }
+      }
+      return val;
+    },
+    schema,
+  );
+}
+
 export async function upsertDimension(
   brainId: string,
   name: string,
@@ -85,8 +98,7 @@ export function registerCoreTools(
         .string()
         .optional()
         .describe("Where this came from: journal, project, claude, manual, etc."),
-      dimensions: z
-        .array(dimensionSchema)
+      dimensions: jsonArray(z.array(dimensionSchema))
         .optional()
         .describe("Dimensions to link this thought to"),
       thought_type: z
@@ -704,8 +716,7 @@ export function registerCoreTools(
         .enum(["fact", "decision", "observation", "question"])
         .optional()
         .describe("Type for the new thought (defaults to the old thought's type)"),
-      dimensions: z
-        .array(dimensionSchema)
+      dimensions: jsonArray(z.array(dimensionSchema))
         .optional()
         .describe("Dimensions for the new thought. If omitted, copies dimensions from the old thought."),
       metadata: z
@@ -848,19 +859,17 @@ export function registerCoreTools(
       title: z.string().describe("Short title for the ADR (e.g. 'Use pgvector for semantic search')"),
       decision: z.string().describe("The decision that was made — this becomes the thought content"),
       context: z.string().describe("Why this decision was needed — the problem or forces at play"),
-      alternatives: z
-        .array(
+      alternatives: jsonArray(z.array(
           z.object({
             name: z.string().describe("Alternative name"),
             pros: z.array(z.string()).optional(),
             cons: z.array(z.string()).optional(),
             rejected_reason: z.string().optional(),
           })
-        )
+        ))
         .optional()
         .describe("Alternatives that were considered"),
-      consequences: z
-        .array(z.string())
+      consequences: jsonArray(z.array(z.string()))
         .optional()
         .describe("Known consequences of this decision"),
       status: z
@@ -871,8 +880,7 @@ export function registerCoreTools(
         .string()
         .optional()
         .describe("ISO date to re-evaluate this decision"),
-      dimensions: z
-        .array(dimensionSchema)
+      dimensions: jsonArray(z.array(dimensionSchema))
         .optional()
         .describe("Dimensions to link this ADR to (project, topic, etc.)"),
       skip_embedding: z

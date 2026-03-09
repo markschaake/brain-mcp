@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import * as z from "zod/v4";
 import * as z4mini from "zod/v4-mini";
-import { dimensionSchema } from "./tools.js";
+import { dimensionSchema, jsonArray } from "./tools.js";
 
 // Reconstruct the capture_thought input schema (mirrors tools.ts lines 82-110)
 const captureThoughtSchema = z.object({
   content: z.string(),
   source: z.string().optional(),
-  dimensions: z.array(dimensionSchema).optional(),
+  dimensions: jsonArray(z.array(dimensionSchema)).optional(),
   thought_type: z
     .enum(["fact", "decision", "observation", "question"])
     .optional(),
@@ -36,7 +36,7 @@ const supersedeThoughtSchema = z.object({
   thought_type: z
     .enum(["fact", "decision", "observation", "question"])
     .optional(),
-  dimensions: z.array(dimensionSchema).optional(),
+  dimensions: jsonArray(z.array(dimensionSchema)).optional(),
   metadata: z.record(z.string(), z.any()).optional(),
   skip_embedding: z.boolean().optional(),
   brain: z.string().optional(),
@@ -202,6 +202,32 @@ describe("capture_thought via MCP SDK pipeline", () => {
     const result = mcpParse(captureThoughtSchema, {});
     expect(result.success).toBe(false);
   });
+
+  it("accepts string-encoded dimensions array", () => {
+    const result = mcpParse(captureThoughtSchema, {
+      content: "test thought",
+      dimensions: JSON.stringify([
+        { name: "chandra", type: "person" },
+        { name: "aroh-ai", type: "project" },
+      ]),
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dimensions).toHaveLength(2);
+      expect(result.data.dimensions![0].name).toBe("chandra");
+    }
+  });
+
+  it("accepts string-encoded dimensions via native Zod parse", () => {
+    const result = z.safeParse(captureThoughtSchema, {
+      content: "test thought",
+      dimensions: JSON.stringify([{ name: "foo", type: "topic" }]),
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dimensions).toHaveLength(1);
+    }
+  });
 });
 
 describe("search schema", () => {
@@ -278,5 +304,17 @@ describe("supersede_thought schema", () => {
       old_thought_id: "9b7c7aa9-47b2-4563-ab8b-f108bf88c6d6",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts string-encoded dimensions array", () => {
+    const result = z.safeParse(supersedeThoughtSchema, {
+      old_thought_id: "9b7c7aa9-47b2-4563-ab8b-f108bf88c6d6",
+      content: "Updated",
+      dimensions: JSON.stringify([{ name: "new-project", type: "project" }]),
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dimensions).toHaveLength(1);
+    }
   });
 });
