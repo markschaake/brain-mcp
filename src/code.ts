@@ -419,7 +419,7 @@ server.registerTool("check_freshness", {
     "Check whether code-linked knowledge is still fresh by comparing referenced files against their state when knowledge was captured. Requires the local repo checkout path.",
   inputSchema: {
     repo_path: z.string().describe("Absolute path to the local repository checkout"),
-    thought_id: z.string().uuid().optional().describe("Check a specific thought"),
+    thought_id: z.uuid().optional().describe("Check a specific thought"),
     repo: z.string().optional().describe("Check all thoughts linked to this repo"),
     file: z.string().optional().describe("Check all thoughts linked to this file"),
     brain: z

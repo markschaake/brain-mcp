@@ -16,7 +16,9 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint src/",
-    "prepare": "tsc"
+    "prepare": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -34,6 +36,7 @@
     "@types/pg": "^8.18.0",
     "eslint": "^10.0.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
   }
 }

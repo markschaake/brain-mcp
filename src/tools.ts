@@ -694,7 +694,7 @@ export function registerCoreTools(
     description:
       "Replace an existing thought with an updated version, preserving history. Use this when the user corrects a fact, changes a decision, or updates any previously stored knowledge. The old thought is marked superseded and linked to its replacement.",
     inputSchema: {
-      old_thought_id: z.string().uuid().describe("ID of the thought to supersede"),
+      old_thought_id: z.uuid().describe("ID of the thought to supersede"),
       content: z.string().describe("The updated thought content"),
       source: z
         .string()
