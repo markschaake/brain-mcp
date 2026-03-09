@@ -32,7 +32,11 @@ npx tsx scripts/seed-from-daily.ts              # dry-run
 npx tsx scripts/seed-from-daily.ts --execute    # insert into db
 ```
 
-No test framework is configured yet.
+Tests:
+```bash
+pnpm test             # run tests (vitest)
+pnpm test:watch       # watch mode
+```
 
 ## Architecture
 
@@ -70,6 +74,7 @@ Source files:
 - `list_dimensions` — all dimensions with thought counts (active-only by default)
 - `list_brains` — list all brains (knowledge spaces) with optional thought counts; respects `BRAIN_ACCESSIBLE`
 - `supersede_thought` — replace an existing thought, preserving history and ADR metadata
+- `archive_thought` — soft-delete a thought (mark archived) without replacing it; for duplicates, mistakes, or irrelevant thoughts
 - `capture_adr` — record an Architecture Decision Record with auto-numbering, context, alternatives, consequences
 - `list_adrs` — list/filter ADRs by status or dimension
 

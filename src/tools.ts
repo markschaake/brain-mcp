@@ -850,6 +850,79 @@ export function registerCoreTools(
     };
   });
 
+  // -- archive_thought --
+
+  server.registerTool("archive_thought", {
+    description:
+      "Archive a thought without replacing it. Use this to remove duplicates, mistakes, or irrelevant thoughts. The thought is soft-deleted (marked archived) and excluded from normal queries, but preserved for history. To replace a thought with updated content, use supersede_thought instead.",
+    inputSchema: {
+      thought_id: z.uuid().describe("ID of the thought to archive"),
+      reason: z
+        .string()
+        .optional()
+        .describe("Why this thought is being archived (e.g. 'duplicate', 'mistake', 'no longer relevant')"),
+      brain: z
+        .string()
+        .optional()
+        .describe("Target a specific brain by name. Omit to use the default brain."),
+    },
+  }, async ({ thought_id, reason, brain }) => {
+    if (brain === "*") {
+      return { content: [{ type: "text" as const, text: "Error: wildcard '*' not allowed for write operations. Specify a brain name." }] };
+    }
+    const brainId = await resolveBrain(brain, true);
+
+    const result = await withTransaction(async (client) => {
+      const existing = await client.query<{ id: string; status: string; content: string; metadata: Record<string, unknown> | null }>(
+        `SELECT id, status, content, metadata FROM thoughts WHERE id = $1 AND brain_id = $2`,
+        [thought_id, brainId]
+      );
+
+      if (existing.rows.length === 0) {
+        return { notFound: true } as const;
+      }
+
+      const thought = existing.rows[0];
+      const warning = thought.status !== "active"
+        ? ` (note: thought was already ${thought.status})`
+        : "";
+
+      const metadataUpdate = reason
+        ? `, metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb`
+        : "";
+      const params: unknown[] = [thought_id, brainId];
+      if (reason) {
+        params.push(JSON.stringify({ archived_reason: reason }));
+      }
+
+      await client.query(
+        `UPDATE thoughts SET status = 'archived'${metadataUpdate} WHERE id = $1 AND brain_id = $2`,
+        params
+      );
+
+      const snippet = thought.content.length > 80
+        ? thought.content.slice(0, 80) + "…"
+        : thought.content;
+      return { notFound: false, snippet, warning } as const;
+    });
+
+    if (result.notFound) {
+      return {
+        content: [{ type: "text" as const, text: `Thought ${thought_id} not found in current brain.` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Archived thought ${thought_id}${result.warning}: "${result.snippet}"`,
+        },
+      ],
+    };
+  });
+
   // -- capture_adr --
 
   server.registerTool("capture_adr", {
